@@ -39,7 +39,7 @@ export default function Home() {
   });
   const [gameState, setGameState] = useState<GameState>({
     isPlaying: false,
-    showInstructions: true,
+    showInstructions: false, // Changed to false initially
     showAlert: false,
     showResults: false,
     gameOver: false,
@@ -53,6 +53,9 @@ export default function Home() {
   });
 
   const [resultImageUrl, setResultImageUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingText, setLoadingText] = useState('Loading resources...');
 
   const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const resultDelayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -87,67 +90,6 @@ export default function Home() {
     stopTimer();
     setTimer({ currentTime: 0, intervalId: null });
   }, [stopTimer]);
-
-
-
-  // Initialize audio files
-  useEffect(() => {
-    // Initialize background music
-    const bgMusic = new Audio('/sounds/bg-music.mp3');
-    bgMusic.loop = true;
-    bgMusic.volume = 0.3; // Lower volume for background
-    bgMusic.preload = 'auto'; // Preload the audio
-    bgMusicRef.current = bgMusic;
-
-    // Initialize alarm music
-    const alarmMusic = new Audio('/sounds/alarm-music.mp3');
-    alarmMusic.loop = true;
-    alarmMusic.volume = 0.7; // Higher volume for urgency
-    alarmMusic.preload = 'auto';
-    alarmMusicRef.current = alarmMusic;
-
-    // Initialize button click sound
-    const buttonClick = new Audio('/sounds/button-click.mp3');
-    buttonClick.volume = 0.5;
-    buttonClick.preload = 'auto';
-    buttonClickRef.current = buttonClick;
-
-    // Try to start background music immediately
-    const startBgMusic = async () => {
-      try {
-        if (bgMusicRef.current) {
-          await bgMusicRef.current.play();
-        }
-      } catch {
-        // If autoplay fails, set up listeners for first user interaction
-        const startOnFirstInteraction = () => {
-          if (bgMusicRef.current) {
-            bgMusicRef.current.play().catch(console.log);
-          }
-          // Remove listeners after first play
-          document.removeEventListener('click', startOnFirstInteraction);
-          document.removeEventListener('touchstart', startOnFirstInteraction);
-          document.removeEventListener('keydown', startOnFirstInteraction);
-        };
-
-        document.addEventListener('click', startOnFirstInteraction);
-        document.addEventListener('touchstart', startOnFirstInteraction);
-        document.addEventListener('keydown', startOnFirstInteraction);
-      }
-    };
-
-    startBgMusic();
-
-    // Cleanup function
-    return () => {
-      if (bgMusicRef.current) {
-        bgMusicRef.current.pause();
-      }
-      if (alarmMusicRef.current) {
-        alarmMusicRef.current.pause();
-      }
-    };
-  }, []);
 
   // Audio control helpers
   const playButtonSound = useCallback(() => {
@@ -246,6 +188,161 @@ export default function Home() {
       }
     };
   }, [timer.intervalId]);
+
+  // Preload images
+  const preloadImages = useCallback((): Promise<void[]> => {
+    const imageUrls = [
+      '/game/game-bg.png',
+      '/game/bg-alert.png',
+      '/game/bg-succeed.png',
+      '/game/bg-soon.png',
+      '/game/hand.png',
+      '/game/omw-idle.png',
+      '/game/omw-pressed.png'
+    ];
+
+    return Promise.all(
+      imageUrls.map((url, index) => {
+        return new Promise<void>((resolve) => {
+          const img = document.createElement('img');
+          img.onload = () => {
+            const progress = ((index + 1) / imageUrls.length) * 50; // 50% for images
+            setLoadingProgress(progress);
+            setLoadingText(`Loading images... (${index + 1}/${imageUrls.length})`);
+            resolve();
+          };
+          img.onerror = () => {
+            console.warn(`Failed to load image: ${url}`);
+            resolve(); // Continue even if one image fails
+          };
+          img.src = url;
+        });
+      })
+    );
+  }, []);
+
+  // Preload audio files
+  const preloadAudio = useCallback((): Promise<void[]> => {
+    const audioUrls = [
+      '/sounds/bg-music.mp3',
+      '/sounds/alarm-music.mp3',
+      '/sounds/button-click.mp3'
+    ];
+
+    return Promise.all(
+      audioUrls.map((url, index) => {
+        return new Promise<void>((resolve) => {
+          const audio = new Audio();
+          audio.oncanplaythrough = () => {
+            const progress = 50 + ((index + 1) / audioUrls.length) * 50; // 50% for audio
+            setLoadingProgress(progress);
+            setLoadingText(`Loading audio... (${index + 1}/${audioUrls.length})`);
+            resolve();
+          };
+          audio.onerror = () => {
+            console.warn(`Failed to load audio: ${url}`);
+            resolve(); // Continue even if one audio fails
+          };
+          audio.preload = 'auto';
+          audio.src = url;
+        });
+      })
+    );
+  }, []);
+
+  // Main preloader function
+  const preloadResources = useCallback(async () => {
+    try {
+      setLoadingText('Loading images...');
+      await preloadImages();
+      
+      setLoadingText('Loading audio files...');
+      await preloadAudio();
+      
+      setLoadingText('Initializing game...');
+      setLoadingProgress(100);
+      
+      // Small delay to show completion
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setIsLoading(false);
+      
+      // Show instructions after loading is complete
+      setTimeout(() => {
+        setGameState(prev => ({ ...prev, showInstructions: true }));
+      }, 300);
+    } catch (error) {
+      console.error('Error preloading resources:', error);
+      // Even if there's an error, allow the game to start
+      setIsLoading(false);
+    }
+  }, [preloadImages, preloadAudio]);
+
+  // Initialize preloader and audio files
+  useEffect(() => {
+    const initializeGame = async () => {
+      // Start preloading resources
+      await preloadResources();
+
+      // Initialize background music after preloading
+      const bgMusic = new Audio('/sounds/bg-music.mp3');
+      bgMusic.loop = true;
+      bgMusic.volume = 0.3; // Lower volume for background
+      bgMusic.preload = 'auto'; // Preload the audio
+      bgMusicRef.current = bgMusic;
+
+      // Initialize alarm music
+      const alarmMusic = new Audio('/sounds/alarm-music.mp3');
+      alarmMusic.loop = true;
+      alarmMusic.volume = 0.7; // Higher volume for urgency
+      alarmMusic.preload = 'auto';
+      alarmMusicRef.current = alarmMusic;
+
+      // Initialize button click sound
+      const buttonClick = new Audio('/sounds/button-click.mp3');
+      buttonClick.volume = 0.5;
+      buttonClick.preload = 'auto';
+      buttonClickRef.current = buttonClick;
+
+      // Try to start background music immediately
+      const startBgMusic = async () => {
+        try {
+          if (bgMusicRef.current) {
+            await bgMusicRef.current.play();
+          }
+        } catch {
+          // If autoplay fails, set up listeners for first user interaction
+          const startOnFirstInteraction = () => {
+            if (bgMusicRef.current) {
+              bgMusicRef.current.play().catch(console.log);
+            }
+            // Remove listeners after first play
+            document.removeEventListener('click', startOnFirstInteraction);
+            document.removeEventListener('touchstart', startOnFirstInteraction);
+            document.removeEventListener('keydown', startOnFirstInteraction);
+          };
+
+          document.addEventListener('click', startOnFirstInteraction);
+          document.addEventListener('touchstart', startOnFirstInteraction);
+          document.addEventListener('keydown', startOnFirstInteraction);
+        }
+      };
+
+      startBgMusic();
+    };
+
+    initializeGame();
+
+    // Cleanup function
+    return () => {
+      if (bgMusicRef.current) {
+        bgMusicRef.current.pause();
+      }
+      if (alarmMusicRef.current) {
+        alarmMusicRef.current.pause();
+      }
+    };
+  }, [preloadResources]);
 
   const getReactionCategory = useCallback((time: number): ReactionCategory => {
     if (time < 250) return 'Lightning Fast';
@@ -563,8 +660,26 @@ CA: CCk7zxbYt3zMLybZ2Civw6r4H9ZSiLts3HNmLcdvbonk
 
 
 
-  return (
+    return (
     <>
+      {/* Loading Screen */}
+      {isLoading && (
+        <div className="loading-overlay">
+          <div className="loading-content">
+            <div className="loading-spinner"></div>
+            <h1 className="loading-title">$OMW Reaction Test</h1>
+            <p className="loading-text">{loadingText}</p>
+            <div className="progress-container">
+              <div 
+                className="progress-bar" 
+                style={{ width: `${loadingProgress}%` }}
+              ></div>
+            </div>
+            <p className="progress-percentage">{Math.round(loadingProgress)}%</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="game-header">
         <h1>$OMW Reaction Test</h1>
@@ -637,8 +752,8 @@ CA: CCk7zxbYt3zMLybZ2Civw6r4H9ZSiLts3HNmLcdvbonk
         onTouchStart={handleOMWPointerDown}
         onTouchEnd={handleOMWPointerUp}
         onClick={(e) => e.stopPropagation()}
-      >
-        <Image
+        >
+          <Image
           src={gameState.isPressing ? "/game/omw-pressed.png" : "/game/omw-idle.png"}
           alt="OMW Button"
           width={120}
@@ -791,7 +906,7 @@ CA: CCk7zxbYt3zMLybZ2Civw6r4H9ZSiLts3HNmLcdvbonk
           </div>
         </div>
       )}
-      </div>
+    </div>
     </>
   );
 }
