@@ -221,7 +221,7 @@ export default function Home() {
     );
   }, []);
 
-  // Preload audio files
+  // Preload audio files (with iOS compatibility)
   const preloadAudio = useCallback((): Promise<void[]> => {
     const audioUrls = [
       '/sounds/bg-music.mp3',
@@ -229,20 +229,51 @@ export default function Home() {
       '/sounds/button-click.mp3'
     ];
 
+    // Check if we're on iOS/mobile - skip actual audio preloading
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    if (isIOS || isMobile) {
+      // For mobile devices, just simulate the loading progress without actually loading audio
+      return Promise.all(
+        audioUrls.map((url, index) => {
+          return new Promise<void>((resolve) => {
+            setTimeout(() => {
+              const progress = 50 + ((index + 1) / audioUrls.length) * 50; // 50% for audio
+              setLoadingProgress(progress);
+              setLoadingText(`Preparing audio... (${index + 1}/${audioUrls.length})`);
+              resolve();
+            }, 200 + (index * 100)); // Simulate loading time
+          });
+        })
+      );
+    }
+
+    // For desktop, actually preload the audio
     return Promise.all(
       audioUrls.map((url, index) => {
         return new Promise<void>((resolve) => {
           const audio = new Audio();
+          
+          const timeoutId = setTimeout(() => {
+            console.warn(`Audio preload timeout: ${url}`);
+            resolve(); // Resolve after timeout
+          }, 3000); // 3 second timeout
+          
           audio.oncanplaythrough = () => {
+            clearTimeout(timeoutId);
             const progress = 50 + ((index + 1) / audioUrls.length) * 50; // 50% for audio
             setLoadingProgress(progress);
             setLoadingText(`Loading audio... (${index + 1}/${audioUrls.length})`);
             resolve();
           };
+          
           audio.onerror = () => {
+            clearTimeout(timeoutId);
             console.warn(`Failed to load audio: ${url}`);
             resolve(); // Continue even if one audio fails
           };
+          
           audio.preload = 'auto';
           audio.src = url;
         });
